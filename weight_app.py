@@ -68,6 +68,14 @@ def main():
 
     st.title("🍱 体重与饮食管理助手")
 
+    # --- 关键修改：在渲染侧边栏之前，先读取历史数据 ---
+    df = get_records()
+    
+    # 获取最后一次记录的体重作为默认值
+    last_weight_kg = 60.0 # 初始默认值（针对没有任何数据的新用户）
+    if not df.empty:
+        last_weight_kg = df.iloc[-1]['weight']
+
     # --- 侧边栏 ---
     with st.sidebar:
         st.header("⚙️ 单位设置")
@@ -79,12 +87,12 @@ def main():
         st.header("📝 录入数据")
         input_date = st.date_input("日期", date.today())
         
-        # 默认体重
-        default_val = 60.0 * unit_factor
+        # --- 关键修改：使用 last_weight_kg 计算默认值 ---
+        default_val = last_weight_kg * unit_factor
         input_val = st.number_input(f"今日体重 ({unit_label})", 0.0, 600.0, default_val, 0.1)
         weight_to_save_kg = input_val / unit_factor 
 
-        # --- 修改点 1: 默认身高改为 180 ---
+        # 默认身高 180
         input_height = st.number_input("📏 身高 (cm)", 100, 250, 180) 
         
         st.subheader("🍽️ 三餐记录")
@@ -98,7 +106,7 @@ def main():
             st.success("✅ 保存成功！")
             st.rerun()
 
-        # 侧边栏 BMI 展示
+        # 侧边栏 BMI 展示 (现在的 weight_to_save_kg 默认就是最新体重，所以这里准了)
         st.divider()
         current_bmi = weight_to_save_kg / ((input_height/100) ** 2)
         status_text, status_color = get_bmi_status(current_bmi)
@@ -115,11 +123,15 @@ def main():
             """)
 
     # --- 主界面 ---
-    df = get_records()
-
     if not df.empty:
+        # 注意：这里我们使用刚刚读出来的 df，但因为我们可能刚刚保存了新数据
+        # 最好重新读取一次以确保主界面显示的是（可能刚更新的）最新数据
+        # 但 Streamlit 的 rerun 会重新跑整个脚本，所以这里直接用 df 也没大问题
+        # 为了保险起见，如果刚才点了保存触发 rerun，脚本会重头跑，df 已经是新的了
+        
         df['record_date'] = pd.to_datetime(df['record_date'])
         
+        # 重新获取最新的行用于显示（因为 df 是在头部读取的）
         current_kg = df.iloc[-1]['weight']
         display_current = current_kg * unit_factor
         
@@ -129,13 +141,17 @@ def main():
             diff = (current_kg - prev) * unit_factor
             delta_str = f"{diff:+.1f} {unit_label}"
             
-        # --- 修改点 2: 顶部改为 4 列，增加身高显示 ---
+        # 顶部 4 列
         col1, col2, col3, col4 = st.columns(4)
         
         col1.metric(f"最新体重 ({unit_label})", f"{display_current:.1f}", delta_str)
-        col2.metric("当前 BMI", f"{current_bmi:.1f}", status_text)
+        # 这里的主界面 BMI 也使用最新记录的体重
+        main_bmi = current_kg / ((input_height/100) ** 2)
+        main_status, _ = get_bmi_status(main_bmi)
+        
+        col2.metric("当前 BMI", f"{main_bmi:.1f}", main_status)
         col3.metric("记录天数", f"{len(df)} 天")
-        col4.metric("设定身高", f"{input_height} cm") # 新增的身高显示
+        col4.metric("设定身高", f"{input_height} cm") 
 
         # 趋势图
         st.subheader(f"📈 趋势图 ({unit_label})")
@@ -182,7 +198,7 @@ def main():
         )
 
     else:
-        st.info("👈 请在左侧添加第一条记录")
+        st.info("👈 还没有数据，请在左侧添加第一条记录")
 
 if __name__ == '__main__':
     main()
